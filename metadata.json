@@ -1,0 +1,7 @@
+{
+  "name": "VideoScribe Clone AI",
+  "description": "A web-based whiteboard animation editor featuring a timeline, canvas, and AI-powered script generation.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
