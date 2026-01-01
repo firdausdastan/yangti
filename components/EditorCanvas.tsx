@@ -91,6 +91,11 @@ const DraggableElement = ({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const controls = useDragControls();
 
+  // Match the filter used in PlayerOverlay for consistency
+  const sketchFilter = element.sketchMode 
+    ? 'grayscale(100%) contrast(125%) brightness(110%) sepia(10%) drop-shadow(1px 1px 0px rgba(0,0,0,0.1))' 
+    : '';
+
   return (
     <motion.div
       drag
@@ -153,7 +158,11 @@ const DraggableElement = ({
          <img 
            src={element.content} 
            alt="el" 
-           className={`w-full h-full object-contain pointer-events-none select-none ${element.sketchMode ? 'grayscale contrast-125 brightness-110' : ''}`}
+           className="w-full h-full object-contain pointer-events-none select-none"
+           style={{ 
+             filter: sketchFilter, 
+             mixBlendMode: element.sketchMode ? 'multiply' : 'normal' 
+           }}
            draggable={false}
          />
        )}

@@ -160,13 +160,15 @@ const AnimateElement = ({ element, state }: { element: CanvasElement, state: 'wa
   const isDrawing = state === 'drawing';
   const isDone = state === 'done' || state === 'pausing' || state === 'transitioning';
 
-  // Apply Sketch Mode Filters
-  const filterStyle = element.sketchMode ? 'grayscale(100%) contrast(150%) brightness(110%)' : '';
+  // Enhanced Sketch Filters: High contrast + Sepia for paper feel + Thresholding simulation
+  const filterStyle = element.sketchMode 
+    ? 'grayscale(100%) contrast(125%) brightness(110%) sepia(10%) drop-shadow(1px 1px 0px rgba(0,0,0,0.1))' 
+    : '';
 
   // Determine Stroke properties based on Brush Type
   // Pencil = thin, sharp. Marker = thick, rounder.
   const isMarker = element.brushType === 'marker';
-  const strokeWidth = isMarker ? 20 : 3;
+  const strokeWidth = isMarker ? 30 : 4; // Increased widths for better coverage
   
   // Smoothness (Line Join)
   const lineJoin = isMarker ? 'round' : 'miter';
@@ -215,13 +217,13 @@ const AnimateElement = ({ element, state }: { element: CanvasElement, state: 'wa
              {jitter > 0 && (
                <filter id={filterId}>
                  <feTurbulence type="fractalNoise" baseFrequency="0.1" numOctaves="2" result="noise" />
-                 <feDisplacementMap in="SourceGraphic" in2="noise" scale={jitter * 2} />
+                 <feDisplacementMap in="SourceGraphic" in2="noise" scale={jitter * 1.5} />
                </filter>
              )}
              
              <mask id={maskId} maskUnits="userSpaceOnUse">
                 {isDone ? (
-                   <rect x="0" y="0" width={element.width} height={element.height} fill="white" />
+                   <rect x="-10%" y="-10%" width="120%" height="120%" fill="white" />
                 ) : (
                   <motion.path 
                     d={scribblePath}
@@ -246,7 +248,10 @@ const AnimateElement = ({ element, state }: { element: CanvasElement, state: 'wa
             style={{ 
                mask: `url(#${maskId})`,
                WebkitMask: `url(#${maskId})`,
-               filter: filterStyle
+               filter: filterStyle,
+               // Mix blend mode multiply makes white backgrounds transparent on paper, 
+               // simulating ink. But only if not transparent PNG.
+               mixBlendMode: 'multiply' 
             }}
          />
       </div>
@@ -259,7 +264,7 @@ const AnimateElement = ({ element, state }: { element: CanvasElement, state: 'wa
       <motion.img 
         src={element.content}
         className="w-full h-full object-contain"
-        style={{ filter: filterStyle }}
+        style={{ filter: filterStyle, mixBlendMode: 'multiply' }}
         initial={ 
            element.animationType === 'pop-up' ? { scale: 0, opacity: 0 } :
            element.animationType === 'move-in' ? { x: -100, opacity: 0 } :
@@ -286,52 +291,64 @@ const generateScribblePath = (
   strategy: 'outline-fill' | 'scan-vertical' | 'diagonal' = 'outline-fill'
 ) => {
   // Density controls step size. Higher density = smaller step (more lines).
-  // Base step is 20px. 
-  // Density 1.0 -> 20px. Density 2.0 -> 10px. Density 0.5 -> 40px.
-  const step = Math.max(5, 20 / density); 
+  const baseStep = 30; // Base step size
+  const step = Math.max(8, baseStep / density); 
+  
   let d = `M 0 0`;
   
   if (strategy === 'outline-fill') {
-    // 1. Outline (Rectangular path)
+    // 1. Outline (Double loop for coverage)
+    d += ` L ${width} 0 L ${width} ${height} L 0 ${height} L 0 0`;
     d += ` L ${width} 0 L ${width} ${height} L 0 ${height} L 0 0`;
     
     // 2. Horizontal Zigzag Fill
+    // We overscan slightly (-step to width+step) to catch edges
     let y = step / 2;
     while (y < height) {
-      // Right
-      d += ` L ${width} ${Math.min(y, height)}`;
+      // Right sweep
+      d += ` L ${width + 10} ${Math.min(y, height)}`;
       y += step;
       if (y > height + step) break;
-      // Left
-      d += ` L 0 ${Math.min(y, height)}`;
+      // Left sweep
+      d += ` L ${-10} ${Math.min(y, height)}`;
       y += step;
     }
 
   } else if (strategy === 'scan-vertical') {
-    // Just Horizontal Zigzag Top to Bottom
+    // Vertical scan: Top to bottom zigzag
     let y = 0;
-    while (y < height) {
-      d += ` L ${width} ${y}`;
+    while (y <= height + step) {
+      d += ` M 0 ${y} L ${width} ${y}`;
       y += step;
-      if (y > height) break;
-      d += ` L 0 ${y}`;
+      d += ` M ${width} ${y} L 0 ${y}`; // Backwards for hand travel
       y += step;
     }
     
   } else if (strategy === 'diagonal') {
-     // Diagonal Zigzag (simulated simple diagonal hatch)
+     // Diagonal Zigzag (Cross hatch simulation)
      let x = 0;
      let y = 0;
-     const diagStep = step * 1.5;
+     const diagStep = step * 1.2;
      
-     while (y < height * 2) {
-       // Up-Right
-       d += ` L ${Math.min(width, y)} ${Math.max(0, y - width)}`; 
-       y += diagStep;
-       
-       // Down-Left
-       d += ` L ${Math.max(0, y - height)} ${Math.min(height, y)}`;
-       y += diagStep;
+     // First pass: Top-Left to Bottom-Right
+     // Iterate through the perimeter essentially to create diagonals
+     const maxDim = width + height;
+     for (let i = 0; i < maxDim; i += diagStep) {
+        // Start point (either on top edge or left edge)
+        let startX = i < width ? i : width;
+        let startY = i < width ? 0 : i - width;
+        
+        // End point (either on right edge or bottom edge)
+        // We want 45 degree lines: y = x + c
+        // Drawing lines like / 
+        d += ` M ${0} ${i} L ${i} ${0}`;
+        // Add a return stroke to simulate continuous hand movement if needed, 
+        // or just jump (M) for cleaner fill, but continuous (L) looks more like sketching
+        if (i + diagStep < maxDim) {
+           let nextI = i + diagStep;
+           d += ` L ${nextI} 0 L 0 ${nextI}`;
+           i += diagStep; // Skip increment since we handled it
+        }
      }
   }
   
